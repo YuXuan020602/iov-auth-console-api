@@ -1,0 +1,321 @@
+// Prisma Schema for 车联网认证项目管理系统
+// MVP — SQLite (zero-install dev DB)
+// Note: SQLite 不支持 Prisma enum / @db.Text / String[]，全部用 String 代替，应用层校验
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:D:/iov-auth-console-api/dev.db?journal_mode=DELETE&busy_timeout=5000&connection_limit=1"
+}
+
+// ====== 用户 ======
+
+model User {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  passwordHash    String
+  group           String   // CP | AA | HiCar
+  role            String   @default("Engineer") // Engineer | Leader | Newbie | External | Admin
+  isActive        Boolean  @default(true)
+  avatar          String?
+  managerId       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastLoginAt     DateTime?
+
+  // External account fields
+  externalAccount  Boolean  @default(false)
+  externalExpireAt DateTime?
+  externalMaxLevel String?  // L1 | L2 | L3
+  externalProjects String?  // JSON array string
+
+  // Relations
+  ownedSOPs               SOP[]                 @relation("SOPOwner")
+  authoredSOPVersions     SOPVersion[]          @relation("SOPVersionAuthor")
+  approvedSOPVersions     SOPVersion[]          @relation("SOPVersionReviewer")
+  ownedKnowledges         Knowledge[]           @relation("KnowledgeOwner")
+  authoredPosts           ForumPost[]
+  authoredReplies         ForumReply[]
+  subscriptions           Subscription[]
+  syncAcks                SyncAck[]
+  auditLogs               AuditLog[]
+  createdProjects         AuthProject[]         @relation("ProjectOwner")
+  syncMessages            SyncMessage[]
+
+  manager      User?  @relation("UserManager", fields: [managerId], references: [id])
+  subordinates User[] @relation("UserManager")
+}
+
+// ====== 认证项目 ======
+
+model AuthProject {
+  id              String   @id @default(cuid())
+  name            String
+  group           String
+  certType        String
+  vehiclePlatform String
+  swVersion       String
+  region          String
+  status          String   @default("Planning") // Planning|Ongoing|Blocked|Certifying|Passed|Terminated
+  ownerId         String
+  startDate       DateTime
+  milestone       String?
+  endDate         DateTime?
+  secretLevel     String   @default("L1")
+  sopCount        Int      @default(0)
+  openIssues      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner User @relation("ProjectOwner", fields: [ownerId], references: [id])
+
+  sops          SOPVersion[]
+  forumPosts    ForumPost[]
+  syncMessages  SyncMessage[]
+  knowledges    Knowledge[]
+}
+
+// ====== SOP ======
+
+model SOP {
+  id          String   @id @default(cuid())
+  sopNo       String   @unique
+  title       String
+  group       String
+  certType    String
+  vehicle     String
+  version     String   // 当前生效版本号
+  ownerId     String
+  secretLevel String   @default("L1")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User @relation("SOPOwner", fields: [ownerId], references: [id])
+
+  versions SOPVersion[]
+}
+
+model SOPVersion {
+  id          String   @id @default(cuid())
+  sopId       String
+  authorId    String
+  versionNo   String   // v2.1
+  body        String   // rich text / markdown
+  changeLog   String?
+  status      String   @default("Draft") // Draft|Pending|Effective|Archived
+  reviewerId  String?
+  reviewAt    DateTime?
+  effectiveAt DateTime?
+  createdAt   DateTime @default(now())
+
+  sop      SOP      @relation(fields: [sopId], references: [id])
+  author   User     @relation("SOPVersionAuthor", fields: [authorId], references: [id])
+  reviewer User?    @relation("SOPVersionReviewer", fields: [reviewerId], references: [id])
+
+  projects      AuthProject[]
+  forumPosts    ForumPost[]
+  standardClauses StandardClause[]
+}
+
+model StandardClause {
+  id          String   @id @default(cuid())
+  standardNo  String
+  clauseNo    String
+  title       String
+  url         String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  versions SOPVersion[]
+}
+
+// ====== 知识库 ======
+
+model Knowledge {
+  id          String   @id @default(cuid())
+  title       String
+  category    String   // 认证差异/踩坑总结/Log 分析/抓包方法/FAQ/术语表
+  group       String
+  body        String   // rich text / markdown
+  ownerId     String
+  reviewDue   DateTime
+  status      String   @default("Valid") // Valid|PendingReview|Archived
+  secretLevel String   @default("L1")
+  refCount    Int      @default(0)
+  favCount    Int      @default(0)
+  sourceUrl   String?
+  summary     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User @relation("KnowledgeOwner", fields: [ownerId], references: [id])
+
+  projects AuthProject[]
+
+  convertedFromPostId String? @unique
+  convertedFromPost   ForumPost? @relation(fields: [convertedFromPostId], references: [id])
+}
+
+// ====== 论坛 ======
+
+model ForumPost {
+  id              String   @id @default(cuid())
+  title           String
+  group           String
+  certType        String
+  problemType     String   // FuncError|Connection|CertFail|Toolchain|StdInterp
+  swVersion       String
+  body            String
+  authorId        String
+  projectId       String?
+  bestReplyId     String?  @unique
+  status          String   @default("Discussing") // Discussing|Solved|Closed|Converted
+  viewCount       Int      @default(0)
+  favCount        Int      @default(0)
+  expertScore     Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  author    User         @relation(fields: [authorId], references: [id])
+  project   AuthProject? @relation(fields: [projectId], references: [id])
+  bestReply ForumReply?  @relation("PostBestReply", fields: [bestReplyId], references: [id])
+
+  replies       ForumReply[]
+  sopVersions   SOPVersion[]
+  convertedToKB Knowledge?
+
+  @@index([authorId, createdAt])
+  @@index([projectId])
+  @@index([status])
+}
+
+model ForumReply {
+  id        String   @id @default(cuid())
+  postId    String
+  body      String
+  authorId  String
+  isBest    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  post   ForumPost @relation(fields: [postId], references: [id])
+  author User      @relation(fields: [authorId], references: [id])
+
+  bestOf ForumPost? @relation("PostBestReply")
+}
+
+// ====== 同步中心 ======
+
+model SyncMessage {
+  id             String   @id @default(cuid())
+  type           String   // StdChange|SOPUpdate|ProjectBlock|CertFailure|KnowledgeReview
+  title          String
+  body           String?
+  group          String
+  issuerId       String
+  projectId      String?
+  status         String   @default("Published")
+  confirmedCount Int      @default(0)
+  totalCount     Int      @default(0)
+  isUrgent       Boolean  @default(false)
+  targetUsers    String?  // JSON array string, null = all
+  issuedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  issuer  User?        @relation(fields: [issuerId], references: [id])
+  project AuthProject? @relation(fields: [projectId], references: [id])
+
+  acks SyncAck[]
+
+  @@index([type, createdAt])
+  @@index([status])
+}
+
+model SyncAck {
+  id          String   @id @default(cuid())
+  messageId   String
+  userId      String
+  readAt      DateTime?
+  confirmedAt DateTime?
+
+  message SyncMessage @relation(fields: [messageId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+
+  @@unique([messageId, userId])
+}
+
+// ====== 订阅 & 标签 ======
+
+model Subscription {
+  id         String   @id @default(cuid())
+  userId     String
+  scopeType  String   // certType / group / project / messageType
+  scopeValue String
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  dimension String   // CertType|ProblemDomain|VehicleSw|Standard|SecretLevel
+  value     String
+  createdBy String
+  createdAt DateTime @default(now())
+
+  entityTags EntityTag[]
+
+  @@unique([dimension, value])
+  @@index([dimension])
+}
+
+// 多对多桥表
+model EntityTag {
+  id         String   @id @default(cuid())
+  tagId      String
+  entityType String   // project|sop|knowledge|post
+  entityId   String
+  createdAt  DateTime @default(now())
+
+  tag Tag @relation(fields: [tagId], references: [id])
+
+  @@unique([tagId, entityType, entityId])
+  @@index([entityType, entityId])
+}
+
+// ====== 审计日志 ======
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String?
+  actorIp      String?
+  resourceType String
+  resourceId   String?
+  action       String   // Create|Update|Delete|Approve|Reject|Download|Login...
+  level        String   @default("info") // info|warning|critical
+  before       String?  // JSON snapshot
+  after        String?  // JSON snapshot
+  createdAt    DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([resourceType, resourceId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+// ====== 周报归档 ======
+
+model WeeklyReport {
+  id            String   @id @default(cuid())
+  generatedWeek String   // YYYY-Www
+  contentJson   String   // full JSON body
+  summaryText   String
+  generatedAt   DateTime @default(now())
+
+  @@unique([generatedWeek])
+}
