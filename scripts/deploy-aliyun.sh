@@ -31,12 +31,22 @@ grep -q '/opt/node/bin' $HOME/.bashrc 2>/dev/null || echo 'export PATH=/opt/node
 npm config set registry https://registry.npmmirror.com
 node -v && npm -v
 
-echo "=== [4/6] 拉取代码 ==="
-if [ ! -d /opt/iov-auth-console-api/.git ]; then
-  rm -rf /opt/iov-auth-console-api
-  git clone --depth 1 https://github.com/YuXuan020602/iov-auth-console-api.git /opt/iov-auth-console-api
+echo "=== [4/6] 拉取代码（GitHub + 国内镜像回退）==="
+REMOTES="
+https://github.com/YuXuan020602/iov-auth-console-api.git
+https://gitclone.com/github.com/YuXuan020602/iov-auth-console-api.git
+https://gh-proxy.com/https://github.com/YuXuan020602/iov-auth-console-api.git
+"
+if [ -d /opt/iov-auth-console-api/.git ]; then
+  cd /opt/iov-auth-console-api && (git pull --ff-only || echo "WARN: git pull 失败，使用现有代码")
 else
-  cd /opt/iov-auth-console-api && git pull --ff-only
+  rm -rf /opt/iov-auth-console-api
+  ok=0
+  for r in $REMOTES; do
+    echo "尝试: $r"
+    if git clone --depth 1 "$r" /opt/iov-auth-console-api; then ok=1; break; fi
+  done
+  [ "$ok" = "1" ] || { echo "ERROR: 所有 git 源均失败，请稍后重试"; exit 1; }
 fi
 cd /opt/iov-auth-console-api
 
