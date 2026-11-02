@@ -52,9 +52,18 @@ export class SOPController {
   }
 
   @Get('version/:versionId')
-  @ApiOperation({ summary: '版本详情' })
+  @ApiOperation({ summary: '版本详情（含 body）' })
   getVersion(@Param('versionId') versionId: string) {
     return this.sop.getVersion(versionId);
+  }
+
+  @Patch('version/:versionId')
+  @ApiOperation({ summary: '更新版本（仅 Draft/Pending 可编辑 body）' })
+  updateVersion(
+    @Param('versionId') versionId: string,
+    @Body() data: Partial<SOPVersion>,
+  ) {
+    return this.sop.updateVersion(versionId, data);
   }
 
   @Post(':id/versions')

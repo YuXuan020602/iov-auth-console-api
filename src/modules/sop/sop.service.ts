@@ -74,6 +74,16 @@ export class SOPService {
     return version;
   }
 
+  async updateVersion(versionId: string, data: Partial<SOPVersion>) {
+    const version = await this.prisma.sOPVersion.findUnique({ where: { id: versionId } });
+    if (!version) throw new NotFoundException(`版本 ${versionId} 不存在`);
+    // 只有 Draft 或 Pending 状态允许编辑 body/changeLog
+    if (version.status === 'Effective' || version.status === 'Archived') {
+      throw new BadRequestException('生效版/归档版不可直接编辑，请创建新版本');
+    }
+    return this.prisma.sOPVersion.update({ where: { id: versionId }, data });
+  }
+
   async createVersion(sopId: string, data: Omit<SOPVersion, 'id' | 'createdAt' | 'sopId'>) {
     const sop = await this.prisma.sOP.findUnique({ where: { id: sopId } });
     if (!sop) throw new NotFoundException(`SOP ${sopId} 不存在`);
