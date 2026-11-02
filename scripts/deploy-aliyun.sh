@@ -4,8 +4,14 @@
 set -e
 
 echo "=== [1/6] 系统依赖 ==="
-apt-get update -y >/dev/null 2>&1
-apt-get install -y git curl xz-utils >/dev/null 2>&1
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -y >/dev/null 2>&1
+  apt-get install -y git curl xz-utils >/dev/null 2>&1
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y git curl xz >/dev/null 2>&1
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y git curl xz >/dev/null 2>&1
+fi
 
 echo "=== [2/6] 2G swap（1G 内存防编译 OOM）==="
 if ! swapon --show=NAME --noheadings 2>/dev/null | grep -q '/swapfile'; then
@@ -21,7 +27,7 @@ if ! node -v 2>/dev/null | grep -q '^v20'; then
   rm -rf /opt/node && mkdir -p /opt/node
   tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
 fi
-grep -q '/opt/node/bin' /root/.bashrc 2>/dev/null || echo 'export PATH=/opt/node/bin:$PATH' >> /root/.bashrc
+grep -q '/opt/node/bin' $HOME/.bashrc 2>/dev/null || echo 'export PATH=/opt/node/bin:$PATH' >> $HOME/.bashrc
 npm config set registry https://registry.npmmirror.com
 node -v && npm -v
 
@@ -47,7 +53,7 @@ if [ -f .env ]; then
   pm2 delete iov-api 2>/dev/null || true
   PORT=8080 NODE_ENV=production pm2 start dist/src/main.js --name iov-api
   pm2 save
-  (pm2 startup systemd -u root --hp /root 2>/dev/null | tail -n 1 | bash) || true
+  (pm2 startup systemd -u root --hp /root 2>/dev/null | tail -n 1 | bash) || (pm2 startup -u $(whoami) --hp $HOME 2>/dev/null | tail -n 1 | bash) || true
   echo ""
   echo "DONE: API 已启动，端口 8080"
   echo "验证: curl http://127.0.0.1:8080/api/v1/projects"
